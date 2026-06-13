@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>AquaTrack</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%;font-family:'Nunito',sans-serif;overflow-x:hidden}
+body{position:relative;min-height:100vh;background:#000}
+
+.bg-img{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;pointer-events:none}
+.water-overlay{
+  position:fixed;left:-3%;right:-3%;bottom:0;width:106%;height:62%;
+  object-fit:cover;object-position:bottom;opacity:.34;mix-blend-mode:overlay;z-index:1;pointer-events:none;
+  animation:waterDrift 16s ease-in-out infinite;
+  transform-origin:bottom center;
+}
+.water-shimmer{
+  position:fixed;left:0;right:0;bottom:0;height:62%;z-index:1;pointer-events:none;
+  mix-blend-mode:screen;opacity:.30;
+  background:repeating-linear-gradient(115deg,
+    rgba(255,255,255,0) 0%, rgba(255,255,255,.5) 2.5%,
+    rgba(255,255,255,0) 5%, rgba(255,255,255,0) 14%);
+  background-size:220% 220%;
+  animation:shimmerMove 14s linear infinite;
+}
+.water-shimmer::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(0deg,rgba(120,210,255,.18) 0%,rgba(120,210,255,0) 70%);
+}
+@keyframes waterDrift{
+  0%{transform:translateX(0) scale(1.04)}
+  50%{transform:translateX(-2.5%) scale(1.07)}
+  100%{transform:translateX(0) scale(1.04)}
+}
+@keyframes shimmerMove{
+  0%{background-position:0% 0%}
+  100%{background-position:220% 0%}
+}
+
+/* ── AMBIENT PARTICLES ── */
+.particles{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}
+.particle{position:absolute;border-radius:50%;bottom:-5%}
+.particle.light{
+  background:radial-gradient(circle,rgba(255,255,255,.95) 0%,rgba(255,255,255,.3) 45%,rgba(255,255,255,0) 75%);
+  filter:blur(.5px);
+  animation-name:floatUp;animation-timing-function:ease-in-out;animation-iteration-count:infinite;
+}
+.particle.bubble{
+  background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.85) 0%,rgba(180,230,255,.18) 55%,rgba(180,230,255,.04) 100%);
+  border:1px solid rgba(255,255,255,.35);
+  animation-name:floatUp;animation-timing-function:linear;animation-iteration-count:infinite;
+}
+@keyframes floatUp{
+  0%{transform:translateY(0) translateX(0);opacity:0}
+  8%{opacity:1}
+  92%{opacity:1}
+  100%{transform:translateY(-112vh) translateX(var(--drift,20px));opacity:0}
+}
+
+#scene-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+
+header{
+  position:relative;z-index:20;
+  padding:13px 28px;
+  display:flex;align-items:center;justify-content:space-between;
+  background:linear-gradient(135deg,rgba(255,255,255,0.26),rgba(160,230,255,0.16));
+  border-bottom:1.5px solid rgba(255,255,255,0.4);
+  backdrop-filter:blur(18px) saturate(1.5);
+  box-shadow:0 3px 26px rgba(0,90,160,0.10),inset 0 1px 0 rgba(255,255,255,0.5);
+}
+.logo{display:flex;align-items:center;gap:11px}
+.logo-orb{
+  width:42px;height:42px;border-radius:50%;flex-shrink:0;
+  background:radial-gradient(circle at 32% 28%,#fff 0%,#6dd8ee 28%,#18a8c8 58%,#0a6888 100%);
+  box-shadow:0 3px 13px rgba(24,168,200,.5),inset 0 2px 4px rgba(255,255,255,.85);
+  display:flex;align-items:center;justify-content:center;font-size:1.2rem;
+}
+.logo-text{font-size:1.38rem;font-weight:900;color:#0a3e6a;letter-spacing:-.02em}
+.logo-sub{font-size:.6rem;font-weight:700;color:#3a7aaa;letter-spacing:.1em;text-transform:uppercase}
+.hdr-right{text-align:right;color:#2a6282;font-size:.76rem}
+.hdr-right strong{display:block;font-size:.9rem;font-weight:800;color:#0a3252}
+.hdr-end{display:flex;align-items:center;gap:16px}
+.user-bar{display:flex;align-items:center;gap:10px}
+.user-email{font-size:.72rem;color:#2a6282;font-weight:700;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn-signout{background:rgba(220,48,80,.14);border:1.5px solid rgba(220,48,80,.3);color:#a01828;font-size:.68rem;font-weight:800;padding:6px 12px;border-radius:999px;cursor:pointer;font-family:inherit;transition:background .15s}
+.btn-signout:hover{background:rgba(220,48,80,.24)}
+
+main{
+  position:relative;z-index:10;
+  max-width:1080px;margin:0 auto;
+  padding:22px 18px 260px;
+}
+
+.glass{
+  position:relative;overflow:hidden;
+  background:linear-gradient(155deg,rgba(255,255,255,0.10),rgba(140,210,255,0.07));
+  border:1.5px solid rgba(255,255,255,0.30);
+  border-radius:20px;
+  backdrop-filter:blur(22px) saturate(1.4);
+  box-shadow:
+    0 8px 32px rgba(0,80,150,0.10),
+    0 2px 8px rgba(0,60,130,0.05),
+    inset 0 2px 0 rgba(255,255,255,0.40),
+    inset 0 -1px 0 rgba(120,200,255,0.14);
+}
+.glass::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:44%;
+  background:linear-gradient(180deg,rgba(210,245,255,.22) 0%,rgba(210,245,255,0) 100%);
+  border-radius:20px 20px 50% 50%;pointer-events:none;z-index:1;
+}
+
+/* subtle text halo for legibility over busy scenery */
+.glass h2,.col-ttl,.stat-label,.prog-ttl,.task-name,.logo-text,.stat-num,.prog-pct,.subj-grp-name{
+  text-shadow:0 1px 5px rgba(255,255,255,.55);
+}
+
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:16px}
+.stat-card{padding:20px 13px;text-align:center;cursor:default;transition:transform .2s,box-shadow .22s}
+.stat-card:hover{transform:translateY(-5px) scale(1.03);box-shadow:0 14px 38px rgba(0,90,160,.15),inset 0 2px 0 rgba(255,255,255,.5)}
+.stat-orb{width:50px;height:50px;border-radius:50%;margin:0 auto 9px;display:flex;align-items:center;justify-content:center;font-size:1.35rem}
+.ob1{background:radial-gradient(circle at 33% 28%,#fff 0%,#80dcff 38%,#12a0d8 100%);box-shadow:0 4px 15px rgba(18,160,216,.5)}
+.ob2{background:radial-gradient(circle at 33% 28%,#fff 0%,#ffe080 38%,#e09800 100%);box-shadow:0 4px 15px rgba(224,152,0,.48)}
+.ob3{background:radial-gradient(circle at 33% 28%,#fff 0%,#80f098 38%,#12b040 100%);box-shadow:0 4px 15px rgba(18,176,64,.48)}
+.ob4{background:radial-gradient(circle at 33% 28%,#fff 0%,#ffb0b0 38%,#dc3050 100%);box-shadow:0 4px 15px rgba(220,48,80,.44)}
+.stat-num{font-size:2.2rem;font-weight:900;color:#0a3252}
+.stat-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:#3a7090;margin-top:2px;font-weight:700}
+
+.prog-sec{padding:18px 21px;margin-bottom:16px}
+.prog-hdr{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.prog-ttl{font-size:.74rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#1a5878}
+.prog-pct{font-size:1.18rem;font-weight:900;color:#0a9038}
+.prog-track{height:16px;border-radius:999px;background:rgba(0,80,150,.08);border:1.5px solid rgba(255,255,255,.5);overflow:hidden;box-shadow:inset 0 2px 5px rgba(0,60,130,.10)}
+.prog-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,#18a8c8,#18d060,#80f0b8);box-shadow:0 0 11px rgba(24,208,96,.36);transition:width .9s cubic-bezier(.4,0,.2,1);position:relative}
+.prog-fill::after{content:'';position:absolute;top:3px;left:10px;right:10px;height:5px;background:rgba(255,255,255,.5);border-radius:999px}
+
+.add-sec{padding:17px 21px;margin-bottom:16px}
+.add-sec h2{font-size:.71rem;text-transform:uppercase;letter-spacing:.09em;color:#1a5878;font-weight:800;margin-bottom:11px}
+.add-row{display:flex;gap:9px;flex-wrap:wrap}
+.add-row input,.add-row select{
+  flex:1;min-width:135px;padding:10px 13px;
+  background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.35);
+  border-radius:11px;font-size:.86rem;color:#0a2e50;font-family:inherit;
+  outline:none;transition:border-color .2s,box-shadow .2s;
+  box-shadow:inset 0 2px 5px rgba(0,80,150,.05);
+}
+.add-row input::placeholder{color:#1a4a6a;opacity:.65}
+.add-row input:focus,.add-row select:focus{border-color:#18a8c8;box-shadow:0 0 0 3px rgba(24,168,200,.18),inset 0 2px 5px rgba(0,80,150,.06)}
+.btn-add{
+  padding:10px 22px;border:none;border-radius:11px;
+  background:linear-gradient(135deg,#18a8c8,#18c858);
+  color:#fff;font-size:.88rem;font-weight:900;font-family:inherit;cursor:pointer;white-space:nowrap;
+  box-shadow:0 4px 17px rgba(24,168,200,.4),inset 0 1.5px 0 rgba(255,255,255,.3);
+  transition:transform .15s,box-shadow .15s;
+}
+.btn-add:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(24,168,200,.5),inset 0 1.5px 0 rgba(255,255,255,.3)}
+.btn-add:active{transform:translateY(0)}
+.btn-secondary{background:rgba(255,255,255,.32);color:#0a3252;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.5);border:1.5px solid rgba(255,255,255,.5)}
+.btn-secondary:hover{box-shadow:0 8px 20px rgba(0,80,150,.15),inset 0 1.5px 0 rgba(255,255,255,.5)}
+
+/* ── SUBJECT MANAGEMENT ── */
+.subj-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:13px}
+.subj-chip{display:flex;align-items:center;gap:7px;padding:6px 8px 6px 12px;border-radius:999px;font-size:.74rem;font-weight:800;border:1.5px solid transparent}
+.subj-chip-name{white-space:nowrap}
+.subj-chip-code{opacity:.75;font-weight:900;font-size:.66rem;letter-spacing:.06em;background:rgba(255,255,255,.35);padding:2px 7px;border-radius:999px}
+.chip-btn{background:rgba(255,255,255,.4);border:none;border-radius:50%;width:19px;height:19px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center;color:inherit;flex-shrink:0;transition:background .15s}
+.chip-btn:hover{background:rgba(255,255,255,.8)}
+.subj-chip.editing{background:rgba(255,255,255,.55)!important;border-color:rgba(255,255,255,.7)!important;color:#0a2e50}
+.subj-edit-name,.subj-edit-code{padding:5px 9px;border-radius:8px;border:1.5px solid rgba(120,205,255,.6);font-family:inherit;font-size:.74rem;background:rgba(255,255,255,.85);color:#0a2e50;outline:none}
+.subj-edit-code{width:74px;text-transform:uppercase}
+#subj-code-in{max-width:170px;text-transform:uppercase}
+#subj-code-in::placeholder{text-transform:none}
+
+/* ── FILTER BAR ── */
+.filter-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.filter-pill{
+  padding:8px 15px;border-radius:999px;border:1.5px solid rgba(255,255,255,.4);
+  background:rgba(255,255,255,.16);backdrop-filter:blur(12px);
+  font-size:.74rem;font-weight:800;color:#0a3252;cursor:pointer;
+  transition:all .15s;display:flex;align-items:center;gap:7px;font-family:inherit;
+  text-shadow:0 1px 4px rgba(255,255,255,.5);
+}
+.filter-pill:hover{background:rgba(255,255,255,.3);transform:translateY(-2px)}
+.filter-pill.active{background:rgba(24,168,200,.32);border-color:rgba(24,168,200,.65);color:#053048;box-shadow:0 0 0 3px rgba(24,168,200,.14),0 4px 14px rgba(24,168,200,.25)}
+.sort-pill{margin-left:auto}
+.pill-code{opacity:.7;font-weight:900;font-size:.64rem;letter-spacing:.05em}
+
+.board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+.column{padding:16px}
+.col-hdr{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+.cdot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.cdot.todo {background:radial-gradient(circle at 33% 28%,#fff 0%,#12a0d8 100%);box-shadow:0 2px 7px rgba(18,160,216,.6)}
+.cdot.doing{background:radial-gradient(circle at 33% 28%,#fff 0%,#e09800 100%);box-shadow:0 2px 7px rgba(224,152,0,.6)}
+.cdot.done {background:radial-gradient(circle at 33% 28%,#fff 0%,#12b040 100%);box-shadow:0 2px 7px rgba(18,176,64,.6)}
+.col-ttl{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:#0a3252}
+.col-cnt{margin-left:auto;font-size:.67rem;font-weight:700;background:rgba(24,168,200,.13);color:#0a6888;padding:2px 9px;border-radius:999px;border:1.5px solid rgba(24,168,200,.28)}
+.task-list{display:flex;flex-direction:column;gap:9px;min-height:54px}
+
+.task-card{
+  background:linear-gradient(148deg,rgba(255,255,255,.30),rgba(195,242,255,.18));
+  border:1.5px solid rgba(255,255,255,.4);border-radius:14px;padding:12px 13px;
+  box-shadow:0 4px 15px rgba(0,70,140,.08),inset 0 1.5px 0 rgba(255,255,255,.45);
+  transition:transform .2s,box-shadow .2s;position:relative;overflow:hidden;
+}
+.task-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;border-radius:14px 14px 0 0}
+.task-card::after{content:'';position:absolute;top:4px;left:8%;right:8%;height:28%;background:linear-gradient(180deg,rgba(255,255,255,.25) 0%,transparent 100%);border-radius:10px;pointer-events:none}
+.task-card.todo::before  {background:linear-gradient(90deg,#12a0d8,#70d8f8)}
+.task-card.doing::before {background:linear-gradient(90deg,#e09800,#ffd860)}
+.task-card.done::before  {background:linear-gradient(90deg,#12b040,#70e898)}
+.task-card.blocked::before{background:linear-gradient(90deg,#dc3050,#ffa0b8)}
+.task-card:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,70,140,.14),inset 0 1.5px 0 rgba(255,255,255,.5)}
+.task-name{font-size:.86rem;font-weight:800;color:#0a2e50;margin-bottom:6px;line-height:1.3}
+.task-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.tag{font-size:.63rem;padding:2px 8px;border-radius:999px;font-weight:800;letter-spacing:.04em;border:1.5px solid rgba(255,255,255,.5)}
+.tag.due-upcoming{background:rgba(24,168,200,.14);color:#0a6888;border-color:rgba(24,168,200,.3)}
+.tag.due-today{background:rgba(255,180,40,.18);color:#a06800;border-color:rgba(255,180,40,.35)}
+.tag.due-overdue{background:rgba(220,48,80,.16);color:#a01828;border-color:rgba(220,48,80,.32)}
+.task-actions{margin-left:auto;display:flex;gap:4px}
+.task-btn{background:rgba(24,168,200,.12);border:1.5px solid rgba(24,168,200,.28);cursor:pointer;font-size:.68rem;color:#0a5070;padding:3px 7px;border-radius:7px;transition:background .15s;font-family:inherit;font-weight:700}
+.task-btn:hover{background:rgba(24,168,200,.24);color:#082e48}
+.task-btn.del:hover{background:rgba(220,48,80,.16);color:#a01828;border-color:rgba(220,48,80,.3)}
+
+/* ── SUBJECT GROUPS ── */
+.subject-groups{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+.subject-group{padding:0}
+.subj-grp-hdr{display:flex;align-items:center;gap:10px;padding:14px 18px;cursor:pointer;user-select:none;position:relative;z-index:2}
+.subj-grp-arrow{font-size:.65rem;color:#3a7090;width:12px;flex-shrink:0}
+.subj-grp-name{font-size:.78rem;font-weight:800;color:#0a3252;text-transform:uppercase;letter-spacing:.06em}
+.subj-grp-code{font-size:.64rem;font-weight:900;color:#3a7090;background:rgba(255,255,255,.25);padding:2px 8px;border-radius:999px;letter-spacing:.05em}
+.subj-grp-body{display:flex;flex-direction:column;gap:9px;padding:0 18px 16px;position:relative;z-index:2}
+
+.notes-sec{padding:17px 21px}
+.notes-sec h2{font-size:.71rem;text-transform:uppercase;letter-spacing:.09em;color:#1a5878;font-weight:800;margin-bottom:10px}
+.notes-sec textarea{width:100%;min-height:86px;background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.3);border-radius:13px;padding:11px 13px;font-family:inherit;font-size:.86rem;color:#0a2e50;resize:vertical;outline:none;transition:border-color .2s,box-shadow .2s}
+.notes-sec textarea::placeholder{color:#1a4a6a;opacity:.6}
+.notes-sec textarea:focus{border-color:#18a8c8;box-shadow:0 0 0 3px rgba(24,168,200,.17)}
+
+.empty{text-align:center;padding:17px 0 6px;color:#1a4a6a;font-size:.76rem;font-weight:700;text-shadow:0 1px 4px rgba(255,255,255,.5)}
+.empty-icon{display:block;font-size:1.3rem;margin-bottom:3px}
+
+.toast{position:fixed;bottom:22px;right:22px;z-index:999;background:linear-gradient(135deg,rgba(255,255,255,.55),rgba(185,242,255,.45));border:1.5px solid rgba(255,255,255,.6);border-radius:14px;padding:11px 19px;color:#0a3252;font-size:.86rem;font-weight:800;box-shadow:0 6px 22px rgba(0,80,150,.12);backdrop-filter:blur(14px);transition:opacity .35s,transform .35s}
+.toast.hide{opacity:0;transform:translateY(8px);pointer-events:none}
+
+/* ── AUTH SCREEN ── */
+#auth-screen{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+.auth-card{
+  width:100%;max-width:380px;padding:32px 30px;
+  background:linear-gradient(155deg,rgba(255,255,255,0.22),rgba(140,215,255,0.14));
+  border:1.5px solid rgba(255,255,255,0.45);
+  box-shadow:
+    0 12px 40px rgba(0,80,150,0.16),
+    0 2px 10px rgba(0,60,130,0.08),
+    inset 0 2px 0 rgba(255,255,255,0.55),
+    inset 0 -1px 0 rgba(120,200,255,0.18);
+}
+.auth-card h2{font-size:1.4rem;font-weight:900;color:#0a3252;margin-bottom:4px;text-align:center;text-shadow:0 1px 5px rgba(255,255,255,.55)}
+.auth-card p.sub{font-size:.78rem;color:#1a5878;text-align:center;margin-bottom:18px;font-weight:700}
+.auth-card input{width:100%;margin-bottom:10px;padding:11px 13px;background:rgba(255,255,255,.32);border:1.5px solid rgba(255,255,255,.5);border-radius:11px;font-size:.9rem;color:#0a2e50;font-family:inherit;outline:none;box-shadow:inset 0 2px 5px rgba(0,80,150,.05);transition:border-color .2s,box-shadow .2s}
+.auth-card input::placeholder{color:#1a4a6a;opacity:.65}
+.auth-card input:focus{border-color:#18a8c8;box-shadow:0 0 0 3px rgba(24,168,200,.18)}
+.pw-wrap{position:relative;margin-bottom:10px}
+.pw-wrap input{margin-bottom:0;padding-right:44px}
+.eye-btn{
+  position:absolute;right:4px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+  background:none;border:none;cursor:pointer;font-size:1.05rem;
+  color:#1a5878;opacity:.65;transition:opacity .15s;font-family:inherit;
+}
+.eye-btn:hover{opacity:1}
+.auth-actions{display:flex;gap:9px;margin-top:6px}
+.auth-actions .btn-add{flex:1}
+.auth-msg{margin-top:12px;font-size:.78rem;text-align:center;font-weight:700;color:#a01828;min-height:1.1em}
+.auth-toggle{margin-top:14px;text-align:center;font-size:.78rem;color:#1a5878}
+.auth-toggle a{color:#0a6888;font-weight:800;cursor:pointer;text-decoration:underline}
+#app-root{display:none}
+
+@media(max-width:768px){.stats-row{grid-template-columns:repeat(2,1fr)}.board{grid-template-columns:1fr}.add-row{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<img class="bg-img" src="Assets/background.png" alt=""/>
+<img class="water-overlay" src="Assets/water.gif" alt=""/>
+<div class="water-shimmer"></div>
+<div class="particles" id="particles"></div>
+<canvas id="scene-canvas"></canvas>
+
+<div id="auth-screen">
+  <div class="auth-card glass" id="signin-view">
+    <h2>🐠 AquaTrack</h2>
+    <p class="sub">Sign in to sync your tasks across devices</p>
+    <input type="email" id="si-email" placeholder="Email" autocomplete="email"/>
+    <div class="pw-wrap">
+      <input type="password" id="si-password" placeholder="Password" autocomplete="current-password"/>
+      <button type="button" class="eye-btn" onclick="togglePw('si-password',this)" aria-label="Show password">👁</button>
+    </div>
+    <div class="auth-actions">
+      <button class="btn-add" onclick="handleSignIn()">Sign In</button>
+    </div>
+    <div class="auth-msg" id="si-msg"></div>
+    <div class="auth-toggle"><a onclick="handleForgotPassword()">Forgot password?</a></div>
+    <div class="auth-toggle">New here? <a onclick="showAuthView('signup')">Sign up</a></div>
+  </div>
+
+  <div class="auth-card glass" id="signup-view" style="display:none">
+    <h2>🐠 AquaTrack</h2>
+    <p class="sub">Create an account to get started</p>
+    <input type="email" id="su-email" placeholder="Email" autocomplete="email"/>
+    <div class="pw-wrap">
+      <input type="password" id="su-password" placeholder="Password" autocomplete="new-password"/>
+      <button type="button" class="eye-btn" onclick="togglePw('su-password',this)" aria-label="Show password">👁</button>
+    </div>
+    <div class="pw-wrap">
+      <input type="password" id="su-confirm" placeholder="Confirm Password" autocomplete="new-password"/>
+      <button type="button" class="eye-btn" onclick="togglePw('su-confirm',this)" aria-label="Show password">👁</button>
+    </div>
+    <div class="auth-actions">
+      <button class="btn-add" onclick="handleSignUp()">Sign Up</button>
+    </div>
+    <div class="auth-msg" id="su-msg"></div>
+    <div class="auth-toggle">Already have an account? <a onclick="showAuthView('signin')">Back to sign in</a></div>
+  </div>
+</div>
+
+<div id="app-root">
+<header>
+  <div class="logo">
+    <div class="logo-orb">🐠</div>
+    <div>
+      <div class="logo-text">AquaTrack</div>
+      <div class="logo-sub">Project Dashboard</div>
+    </div>
+  </div>
+  <div class="hdr-end">
+    <div class="hdr-right">
+      <strong id="date-disp"></strong>
+      <span id="time-disp"></span>
+    </div>
+    <div class="user-bar">
+      <span class="user-email" id="user-email"></span>
+      <button class="btn-signout" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="stats-row">
+    <div class="stat-card glass"><div class="stat-orb ob1">📋</div><div class="stat-num" id="cnt-todo">0</div><div class="stat-label">To Do</div></div>
+    <div class="stat-card glass"><div class="stat-orb ob2">⚡</div><div class="stat-num" id="cnt-doing">0</div><div class="stat-label">In Progress</div></div>
+    <div class="stat-card glass"><div class="stat-orb ob3">✅</div><div class="stat-num" id="cnt-done">0</div><div class="stat-label">Done</div></div>
+    <div class="stat-card glass"><div class="stat-orb ob4">🚧</div><div class="stat-num" id="cnt-blocked">0</div><div class="stat-label">Blocked</div></div>
+  </div>
+  <div class="prog-sec glass">
+    <div class="prog-hdr"><span class="prog-ttl">Overall Progress</span><span class="prog-pct" id="pct-disp">0%</span></div>
+    <div class="prog-track"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+  </div>
+
+  <div class="add-sec glass">
+    <h2>📚 Manage Subjects</h2>
+    <div class="subj-list" id="subj-list"></div>
+    <div class="add-row">
+      <input type="text" id="subj-name-in" placeholder="Subject name…" maxlength="80"/>
+      <input type="text" id="subj-code-in" placeholder="Code (e.g. CHEM)" maxlength="12"/>
+      <button class="btn-add" onclick="addSubject()">+ Add Subject</button>
+    </div>
+  </div>
+
+  <div class="add-sec glass">
+    <h2>✨ Add New Task</h2>
+    <div class="add-row">
+      <input type="text" id="task-in" placeholder="What needs doing…" maxlength="120"/>
+      <select id="st-sel"><option value="todo">To Do</option><option value="doing">In Progress</option><option value="done">Done</option><option value="blocked">Blocked</option></select>
+      <select id="subj-sel"></select>
+      <input type="date" id="due-in" title="Due date / complete by"/>
+      <button class="btn-add" onclick="addTask()">+ Add Task</button>
+    </div>
+  </div>
+
+  <div class="filter-bar" id="filter-bar"></div>
+
+  <div class="board">
+    <div class="column glass"><div class="col-hdr"><div class="cdot todo"></div><span class="col-ttl">To Do</span><span class="col-cnt" id="bdg-todo">0</span></div><div class="task-list" id="col-todo"></div></div>
+    <div class="column glass"><div class="col-hdr"><div class="cdot doing"></div><span class="col-ttl">In Progress</span><span class="col-cnt" id="bdg-doing">0</span></div><div class="task-list" id="col-doing"></div></div>
+    <div class="column glass"><div class="col-hdr"><div class="cdot done"></div><span class="col-ttl">Done</span><span class="col-cnt" id="bdg-done">0</span></div><div class="task-list" id="col-done"></div></div>
+  </div>
+
+  <div class="subject-groups" id="subject-groups"></div>
+
+  <div class="notes-sec glass"><h2>🌿 Notes & Ideas</h2><textarea id="notes" placeholder="Jot ideas, blockers, links…" oninput="saveNotes()"></textarea></div>
+</main>
+</div>
+<div class="toast hide" id="toast"></div>
+
+<script>
+const canvas = document.getElementById('scene-canvas');
+const ctx    = canvas.getContext('2d');
+let W, H;
+
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ══════════════════════════════════
+   ASSET IMAGES
+══════════════════════════════════ */
+const bubbleImg = new Image(); bubbleImg.src = 'Assets/bubble.png';
+const fish1Img  = new Image(); fish1Img.src  = 'Assets/fish1.png';
+const fish2Img  = new Image(); fish2Img.src  = 'Assets/fish2.png';
+
+// crop rect for a single bubble within the bubble.png sprite sheet
+const BUBBLE_SRC = {x:40, y:750, w:880, h:920};
+
+/* ══════════════════════════════════
+   BUBBLES — rise from bottom, drift, vary
+══════════════════════════════════ */
+class Bubble {
+  constructor(spawnAnywhere){
+    this.r = 6 + Math.random()*30;
+    this.x = Math.random()*W;
+    this.y = spawnAnywhere ? Math.random()*H : H + this.r + Math.random()*120;
+    this.speed = 0.25 + Math.random()*1.1;
+    this.driftAmp = 0.3 + Math.random()*0.9;
+    this.wobble = Math.random()*Math.PI*2;
+    this.wobbleSpeed = 0.008 + Math.random()*0.025;
+    this.alpha = 0.18 + Math.random()*0.5;
+  }
+  update(){
+    this.y -= this.speed;
+    this.wobble += this.wobbleSpeed;
+    this.x += Math.sin(this.wobble)*this.driftAmp*0.4;
+  }
+  dead(){ return this.y < -this.r*2.2; }
+  draw(c){
+    if(!bubbleImg.complete || !bubbleImg.naturalWidth) return;
+    c.save();
+    c.globalAlpha = this.alpha;
+    const d = this.r*2;
+    c.drawImage(bubbleImg, BUBBLE_SRC.x, BUBBLE_SRC.y, BUBBLE_SRC.w, BUBBLE_SRC.h,
+      this.x-this.r, this.y-this.r, d, d);
+    c.restore();
+  }
+}
+
+let bubbles = Array.from({length:26}, ()=> new Bubble(true));
+
+/* ══════════════════════════════════
+   FISH — calm wandering swim
+══════════════════════════════════ */
+class Fish {
+  // nativeDir: the direction the fish image faces by default (1=right, -1=left)
+  constructor(img, nativeDir, len, yFrac, dir, speed){
+    this.img = img;
+    this.nativeDir = nativeDir;
+    this.len = len;
+    this.aspect = img===fish1Img ? 2732/2600 : 1;
+    this.yFrac = yFrac;
+    this.dir = dir;
+    this.speed = speed;
+    this.targetSpeed = speed;
+    this.x = Math.random()*W;
+    this.bobPhase = Math.random()*Math.PI*2;
+    this.bobAmp = 8 + Math.random()*16;
+    this.bobSpeed = 0.008 + Math.random()*0.014;
+    this.changeTimer = 150 + Math.random()*350;
+  }
+  update(){
+    this.changeTimer--;
+    if(this.changeTimer <= 0){
+      this.changeTimer = 200 + Math.random()*500;
+      if(Math.random() < 0.35) this.dir *= -1;
+      this.targetSpeed = 0.25 + Math.random()*0.9;
+      this.yFrac = Math.min(0.92, Math.max(0.18, this.yFrac + (Math.random()-0.5)*0.12));
+    }
+    this.speed += (this.targetSpeed - this.speed) * 0.01;
+    this.x += this.speed * this.dir;
+    this.bobPhase += this.bobSpeed;
+
+    const margin = this.len*0.7;
+    if(this.x > W + margin) this.x = -margin;
+    if(this.x < -margin) this.x = W + margin;
+  }
+  draw(c){
+    if(!this.img.complete || !this.img.naturalWidth) return;
+    const y = this.yFrac*H + Math.sin(this.bobPhase)*this.bobAmp;
+    const w = this.len, h = this.len*this.aspect;
+    c.save();
+    c.translate(this.x, y);
+    c.scale(this.dir*this.nativeDir, 1);
+    c.drawImage(this.img, -w/2, -h/2, w, h);
+    c.restore();
+  }
+}
+
+// fish1 faces left by default, fish2 faces right by default
+const FISH = [
+  new Fish(fish1Img, -1, 150, 0.36, 1, 0.55),
+  new Fish(fish2Img,  1, 120, 0.55, -1, 0.45),
+  new Fish(fish1Img, -1, 95,  0.68, 1, 0.7),
+  new Fish(fish2Img,  1, 170, 0.46, -1, 0.35),
+  new Fish(fish1Img, -1, 75,  0.25, -1, 0.85),
+];
+
+/* ══════════════════════════════════
+   MAIN RENDER LOOP
+══════════════════════════════════ */
+function render(){
+  ctx.clearRect(0,0,W,H);
+
+  // fish swim behind the bubble curtain
+  FISH.forEach(f=>{ f.update(); f.draw(ctx); });
+
+  // bubbles rise continuously
+  bubbles.forEach(b=>b.update());
+  bubbles = bubbles.filter(b=>!b.dead());
+  while(bubbles.length < 26) bubbles.push(new Bubble(false));
+  bubbles.forEach(b=>b.draw(ctx));
+
+  requestAnimationFrame(render);
+}
+
+render();
+
+/* ── AMBIENT PARTICLES ── */
+function initParticles(){
+  const wrap=document.getElementById('particles');
+  const total=26;
+  for(let i=0;i<total;i++){
+    const isLight = Math.random() < 0.4;
+    const el=document.createElement('div');
+    el.className = 'particle ' + (isLight ? 'light' : 'bubble');
+    const size = isLight ? (2 + Math.random()*3) : (3 + Math.random()*9);
+    el.style.width = size+'px';
+    el.style.height = size+'px';
+    el.style.left = (Math.random()*100)+'vw';
+    el.style.setProperty('--drift', (Math.random()*70-35)+'px');
+    el.style.opacity = (0.15 + Math.random()*0.5).toFixed(2);
+    el.style.animationDuration = (isLight ? (10+Math.random()*14) : (16+Math.random()*26)) + 's';
+    el.style.animationDelay = (Math.random()*-30) + 's';
+    wrap.appendChild(el);
+  }
+}
+initParticles();
+
+/* ── CLOCK ── */
+function tick(){
+  const n=new Date();
+  document.getElementById('date-disp').textContent=n.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  document.getElementById('time-disp').textContent=n.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+}
+setInterval(tick,1000);tick();
+
+/* ══════════════════════════════════
+   SUPABASE — auth + cloud data
+══════════════════════════════════ */
+const SUPABASE_URL = 'https://zpesydcoliwfywfglayd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_UqOlEw_Du13aGftb8259YQ_EywPLpVh';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+let realtimeChannel = null;
+let notesTimer = null;
+let userSettings = {notes:''};
+
+function authMsg(view, m, ok){
+  const e=document.getElementById(view==='signup'?'su-msg':'si-msg');
+  e.textContent=m;
+  e.style.color = ok ? '#0a9038' : '#a01828';
+}
+function showAuthView(view){
+  document.getElementById('signin-view').style.display = view==='signup'?'none':'block';
+  document.getElementById('signup-view').style.display = view==='signup'?'block':'none';
+  authMsg('signin','');authMsg('signup','');
+}
+function togglePw(id,btn){
+  const inp=document.getElementById(id);
+  if(inp.type==='password'){ inp.type='text'; btn.textContent='🙈'; }
+  else { inp.type='password'; btn.textContent='👁'; }
+}
+async function handleSignIn(){
+  const email=document.getElementById('si-email').value.trim();
+  const password=document.getElementById('si-password').value;
+  if(!email||!password){authMsg('signin','Enter your email and password.');return}
+  authMsg('signin','Signing in…',true);
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  if(error) authMsg('signin',error.message);
+}
+async function handleSignUp(){
+  const email=document.getElementById('su-email').value.trim();
+  const password=document.getElementById('su-password').value;
+  const confirm=document.getElementById('su-confirm').value;
+  if(!email||!password||!confirm){authMsg('signup','Enter your email and password.');return}
+  if(password.length<6){authMsg('signup','Password must be at least 6 characters.');return}
+  if(password!==confirm){authMsg('signup','Passwords do not match.');return}
+  authMsg('signup','Creating account…',true);
+  const {error}=await sb.auth.signUp({email,password});
+  if(error) authMsg('signup',error.message);
+  else authMsg('signup','Account created! Check your email to confirm, then sign in.',true);
+}
+async function handleForgotPassword(){
+  const email=document.getElementById('si-email').value.trim();
+  if(!email){authMsg('signin','Enter your email above first.');return}
+  authMsg('signin','Sending reset email…',true);
+  const {error}=await sb.auth.resetPasswordForEmail(email);
+  authMsg('signin',error?error.message:'Password reset email sent.', !error);
+}
+async function signOut(){ await sb.auth.signOut(); }
+
+function showAuth(){
+  document.getElementById('auth-screen').style.display='flex';
+  document.getElementById('app-root').style.display='none';
+  showAuthView('signin');
+  if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel=null; }
+}
+async function showApp(){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app-root').style.display='block';
+  document.getElementById('user-email').textContent=currentUser.email;
+  await loadAll();
+  setupRealtime();
+}
+
+sb.auth.onAuthStateChange((event, session)=>{
+  if(session && session.user){
+    currentUser = session.user;
+    showApp();
+  } else {
+    currentUser = null;
+    showAuth();
+  }
+});
+
+/* ══════════════════════════════════
+   SUBJECTS
+══════════════════════════════════ */
+let subjects=[];
+let editingSubjId=null;
+let filterSubj='all';
+let sortByDue=false;
+function sortTasks(arr){
+  if(!sortByDue) return arr;
+  return [...arr].sort((a,b)=>{
+    if(!a.due&&!b.due) return 0;
+    if(!a.due) return 1;
+    if(!b.due) return -1;
+    return a.due.localeCompare(b.due);
+  });
+}
+function toggleSort(){ sortByDue=!sortByDue; renderFilterBar(); render2(); }
+let collapsedGroups=new Set();
+
+const PALETTE=[
+  {bg:'rgba(18,160,216,.18)', fg:'#0a6888'},
+  {bg:'rgba(224,152,0,.18)',  fg:'#885000'},
+  {bg:'rgba(18,176,64,.18)',  fg:'#085020'},
+  {bg:'rgba(150,90,230,.18)', fg:'#4a2090'},
+  {bg:'rgba(220,48,80,.18)',  fg:'#a01828'},
+  {bg:'rgba(20,190,170,.18)', fg:'#066858'},
+];
+
+function getSubj(id){ return subjects.find(s=>s.id===id); }
+function subjColor(id){
+  const i=subjects.findIndex(s=>s.id===id);
+  return PALETTE[(i<0?0:i)%PALETTE.length];
+}
+
+async function fetchSubjects(){
+  const {data,error}=await sb.from('subjects').select('*').order('created_at',{ascending:true});
+  if(error){ toast('⚠️ '+error.message); subjects=[]; return; }
+  subjects = (data||[]).map(s=>({id:s.id, name:s.subject_name, code:s.subject_code}));
+}
+
+async function addSubject(){
+  const nameInp=document.getElementById('subj-name-in');
+  const codeInp=document.getElementById('subj-code-in');
+  const name=nameInp.value.trim();
+  let code=codeInp.value.trim().toUpperCase();
+  if(!name){ nameInp.focus(); return; }
+  if(!code) code=name.replace(/[^A-Za-z]/g,'').slice(0,6).toUpperCase()||'GEN';
+  const {data,error}=await sb.from('subjects')
+    .insert({user_id:currentUser.id, subject_name:name, subject_code:code})
+    .select().single();
+  if(error){ toast('⚠️ '+error.message); return; }
+  subjects.push({id:data.id,name:data.subject_name,code:data.subject_code});
+  nameInp.value=''; codeInp.value='';
+  renderSubjects(); render2(); toast('📚 Subject added');
+}
+function editSubj(id){ editingSubjId=id; renderSubjects(); }
+function cancelSubjEdit(){ editingSubjId=null; renderSubjects(); }
+async function saveSubjEdit(id){
+  const s=subjects.find(x=>x.id===id); if(!s) return;
+  const name=document.getElementById(`se-name-${id}`).value.trim();
+  const code=document.getElementById(`se-code-${id}`).value.trim().toUpperCase();
+  const updates={};
+  if(name) updates.subject_name=name;
+  if(code) updates.subject_code=code;
+  if(Object.keys(updates).length){
+    const {error}=await sb.from('subjects').update(updates).eq('id',id);
+    if(error){ toast('⚠️ '+error.message); return; }
+  }
+  if(name) s.name=name;
+  if(code) s.code=code;
+  editingSubjId=null;
+  renderSubjects(); render2(); toast('📚 Subject updated');
+}
+async function deleteSubj(id){
+  const {error}=await sb.from('subjects').delete().eq('id',id);
+  if(error){ toast('⚠️ '+error.message); return; }
+  subjects=subjects.filter(s=>s.id!==id);
+  if(filterSubj===id) filterSubj='all';
+  tasks.forEach(t=>{ if(t.subjectId===id) t.subjectId=null; });
+  renderSubjects(); render2(); toast('🗑 Subject removed');
+}
+
+function renderSubjects(){
+  const list=document.getElementById('subj-list');
+  list.innerHTML = subjects.length ? subjects.map(s=>{
+    const col=subjColor(s.id);
+    if(editingSubjId===s.id){
+      return `<div class="subj-chip editing">
+        <input class="subj-edit-name" id="se-name-${s.id}" value="${esc(s.name)}" maxlength="80"/>
+        <input class="subj-edit-code" id="se-code-${s.id}" value="${esc(s.code)}" maxlength="12"/>
+        <button class="chip-btn" onclick="saveSubjEdit('${s.id}')" title="Save">✓</button>
+        <button class="chip-btn" onclick="cancelSubjEdit()" title="Cancel">✕</button>
+      </div>`;
+    }
+    return `<div class="subj-chip" style="background:${col.bg};color:${col.fg};border-color:${col.fg}33">
+      <span class="subj-chip-name">${esc(s.name)}</span><span class="subj-chip-code">${esc(s.code)}</span>
+      <button class="chip-btn" onclick="editSubj('${s.id}')" title="Edit">✎</button>
+      <button class="chip-btn" onclick="deleteSubj('${s.id}')" title="Delete">✕</button>
+    </div>`;
+  }).join('') : `<div class="empty">No subjects yet — add one below</div>`;
+
+  populateSubjectSelect();
+  renderFilterBar();
+}
+
+function populateSubjectSelect(){
+  const sel=document.getElementById('subj-sel');
+  const cur=sel.value;
+  sel.innerHTML = subjects.length
+    ? subjects.map(s=>`<option value="${s.id}">${esc(s.name)} (${esc(s.code)})</option>`).join('')
+    : `<option value="">No subjects</option>`;
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+
+function renderFilterBar(){
+  const bar=document.getElementById('filter-bar');
+  let html = `<button class="filter-pill ${filterSubj==='all'?'active':''}" onclick="setFilter('all')">All Tasks</button>`;
+  html += subjects.map(s=>{
+    const active=filterSubj===s.id?'active':'';
+    return `<button class="filter-pill ${active}" onclick="setFilter('${s.id}')">${esc(s.name)} <span class="pill-code">${esc(s.code)}</span></button>`;
+  }).join('');
+  html += `<button class="filter-pill sort-pill ${sortByDue?'active':''}" onclick="toggleSort()">⏱ Nearest Due</button>`;
+  bar.innerHTML=html;
+}
+function setFilter(f){ filterSubj=f; renderFilterBar(); render2(); }
+function toggleGroup(id){
+  if(collapsedGroups.has(id)) collapsedGroups.delete(id); else collapsedGroups.add(id);
+  renderSubjectGroups();
+}
+
+/* ══════════════════════════════════
+   TASKS
+══════════════════════════════════ */
+let tasks=[];
+const ORDER=['todo','doing','done'];
+
+async function fetchTasks(){
+  const {data,error}=await sb.from('tasks').select('*').order('created_at',{ascending:true});
+  if(error){ toast('⚠️ '+error.message); tasks=[]; return; }
+  tasks = (data||[]).map(t=>({id:t.id, name:t.title, status:t.status, subjectId:t.subject_id, due:t.due_date}));
+}
+
+let tt;
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.remove('hide');clearTimeout(tt);tt=setTimeout(()=>t.classList.add('hide'),2200)}
+
+async function addTask(){
+  const inp=document.getElementById('task-in');const name=inp.value.trim();if(!name){inp.focus();return}
+  const subjVal=document.getElementById('subj-sel').value;
+  const subjectId=subjVal||null;
+  const status=document.getElementById('st-sel').value;
+  const dueInp=document.getElementById('due-in');
+  const due=dueInp.value||null;
+  const {data,error}=await sb.from('tasks')
+    .insert({user_id:currentUser.id, title:name, status, subject_id:subjectId, due_date:due, completed: status==='done'})
+    .select().single();
+  if(error){ toast('⚠️ '+error.message); return; }
+  tasks.push({id:data.id,name:data.title,status:data.status,subjectId:data.subject_id,due:data.due_date});
+  inp.value='';dueInp.value='';render2();toast('🌟 Task added!');
+}
+document.getElementById('task-in').addEventListener('keydown',e=>{if(e.key==='Enter')addTask()});
+document.getElementById('subj-name-in').addEventListener('keydown',e=>{if(e.key==='Enter')addSubject()});
+document.getElementById('subj-code-in').addEventListener('keydown',e=>{if(e.key==='Enter')addSubject()});
+
+async function move(id,d){
+  const t=tasks.find(x=>x.id===id);if(!t)return;
+  let newStatus;
+  if(t.status==='blocked'){ newStatus='todo'; }
+  else { const i=Math.max(0,Math.min(2,ORDER.indexOf(t.status)+d)); newStatus=ORDER[i]; }
+  const {error}=await sb.from('tasks').update({status:newStatus}).eq('id',id);
+  if(error){ toast('⚠️ '+error.message); return; }
+  t.status=newStatus;
+  render2();toast(d>0?'→ Moved forward':'← Moved back');
+}
+async function del(id){
+  const {error}=await sb.from('tasks').delete().eq('id',id);
+  if(error){ toast('⚠️ '+error.message); return; }
+  tasks=tasks.filter(x=>x.id!==id);render2();toast('🗑 Removed');
+}
+async function block(id){
+  const t=tasks.find(x=>x.id===id);if(!t)return;
+  const newStatus=t.status==='blocked'?'todo':'blocked';
+  const {error}=await sb.from('tasks').update({status:newStatus}).eq('id',id);
+  if(error){ toast('⚠️ '+error.message); return; }
+  t.status=newStatus;render2();toast(newStatus==='blocked'?'🚧 Blocked':'✅ Unblocked');
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function dueTag(t){
+  if(!t.due) return '';
+  const subj=getSubj(t.subjectId);
+  const label=subj?'Due':'Complete by';
+  const today=new Date(); today.setHours(0,0,0,0);
+  const dueDate=new Date(t.due+'T00:00:00');
+  const diffDays=Math.round((dueDate-today)/86400000);
+  let cls='due-upcoming';
+  if(diffDays<0) cls='due-overdue';
+  else if(diffDays===0) cls='due-today';
+  const niceDate=dueDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const text=diffDays<0?`${label}: ${niceDate} (overdue)`:diffDays===0?`${label}: today`:`${label}: ${niceDate}`;
+  return `<span class="tag ${cls}">${esc(text)}</span>`;
+}
+function card(t){
+  const bl=t.status==='blocked',cls=bl?'blocked':t.status;
+  const subj=getSubj(t.subjectId);
+  const subjTag = subj
+    ? (()=>{const col=subjColor(subj.id);return `<span class="tag" style="background:${col.bg};color:${col.fg};border-color:${col.fg}33">${esc(subj.name)} · ${esc(subj.code)}</span>`;})()
+    : `<span class="tag" style="background:rgba(120,140,160,.18);color:#3a5a72">Unassigned</span>`;
+  return`<div class="task-card ${cls}"><div class="task-name">${esc(t.name)}</div><div class="task-meta">${subjTag}${dueTag(t)}${bl?'<span class="tag" style="background:rgba(220,48,80,.14);color:#a01828">blocked</span>':''}<div class="task-actions">${!bl&&t.status!=='todo'?`<button class="task-btn" onclick="move('${t.id}',-1)">◀</button>`:''} ${!bl&&t.status!=='done'?`<button class="task-btn" onclick="move('${t.id}',1)">▶</button>`:''}<button class="task-btn" onclick="block('${t.id}')">${bl?'↩':'🚧'}</button><button class="task-btn del" onclick="del('${t.id}')">✕</button></div></div></div>`;
+}
+function empty(){return`<div class="empty"><span class="empty-icon">🐠</span>Nothing here yet</div>`}
+
+function renderSubjectGroups(){
+  const wrap=document.getElementById('subject-groups');
+  const subjList = filterSubj==='all' ? subjects : subjects.filter(s=>s.id===filterSubj);
+  let html='';
+  subjList.forEach(s=>{
+    const subjTasks=tasks.filter(t=>t.subjectId===s.id);
+    const col=subjColor(s.id);
+    const isCollapsed=collapsedGroups.has(s.id);
+    html += `<div class="subject-group glass">
+      <div class="subj-grp-hdr" onclick="toggleGroup('${s.id}')">
+        <span class="subj-grp-arrow">${isCollapsed?'▸':'▾'}</span>
+        <span class="cdot" style="background:${col.fg}"></span>
+        <span class="subj-grp-name">${esc(s.name)}</span>
+        <span class="subj-grp-code">${esc(s.code)}</span>
+        <span class="col-cnt">${subjTasks.length}</span>
+      </div>
+      ${isCollapsed?'':`<div class="subj-grp-body">${subjTasks.length?sortTasks(subjTasks).map(card).join(''):empty()}</div>`}
+    </div>`;
+  });
+  if(filterSubj==='all'){
+    const unassigned=tasks.filter(t=>!getSubj(t.subjectId));
+    if(unassigned.length){
+      const isCollapsed=collapsedGroups.has('unassigned');
+      html += `<div class="subject-group glass">
+        <div class="subj-grp-hdr" onclick="toggleGroup('unassigned')">
+          <span class="subj-grp-arrow">${isCollapsed?'▸':'▾'}</span>
+          <span class="cdot" style="background:#7a92a8"></span>
+          <span class="subj-grp-name">Unassigned</span>
+          <span class="col-cnt">${unassigned.length}</span>
+        </div>
+        ${isCollapsed?'':`<div class="subj-grp-body">${sortTasks(unassigned).map(card).join('')}</div>`}
+      </div>`;
+    }
+  }
+  wrap.innerHTML = html || `<div class="empty">No subjects yet</div>`;
+}
+
+function render2(){
+  // overall stats across all tasks
+  const cols={todo:[],doing:[],done:[],blocked:[]};
+  tasks.forEach(t=>(cols[t.status]||cols.todo).push(t));
+  const total=tasks.length,doneN=cols.done.length,todoAll=[...cols.todo,...cols.blocked];
+  document.getElementById('cnt-todo').textContent=todoAll.length;
+  document.getElementById('cnt-doing').textContent=cols.doing.length;
+  document.getElementById('cnt-done').textContent=doneN;
+  document.getElementById('cnt-blocked').textContent=cols.blocked.length;
+  const pct=total?Math.round(doneN/total*100):0;
+  document.getElementById('pct-disp').textContent=pct+'%';
+  document.getElementById('prog-fill').style.width=pct+'%';
+
+  // board reflects active subject filter
+  const filtered = filterSubj==='all' ? tasks : tasks.filter(t=>t.subjectId===filterSubj);
+  const fcols={todo:[],doing:[],done:[],blocked:[]};
+  filtered.forEach(t=>(fcols[t.status]||fcols.todo).push(t));
+  const ftodoAll=[...fcols.todo,...fcols.blocked];
+  document.getElementById('bdg-todo').textContent=ftodoAll.length;
+  document.getElementById('bdg-doing').textContent=fcols.doing.length;
+  document.getElementById('bdg-done').textContent=fcols.done.length;
+  document.getElementById('col-todo').innerHTML=ftodoAll.length?sortTasks(ftodoAll).map(card).join(''):empty();
+  document.getElementById('col-doing').innerHTML=fcols.doing.length?sortTasks(fcols.doing).map(card).join(''):empty();
+  document.getElementById('col-done').innerHTML=fcols.done.length?sortTasks(fcols.done).map(card).join(''):empty();
+
+  renderSubjectGroups();
+}
+
+/* ══════════════════════════════════
+   NOTES (synced via user_settings)
+══════════════════════════════════ */
+async function fetchSettings(){
+  let {data}=await sb.from('user_settings').select('notes').eq('user_id',currentUser.id).maybeSingle();
+  if(!data){
+    const ins=await sb.from('user_settings').insert({user_id:currentUser.id}).select('notes').single();
+    data=ins.data;
+  }
+  userSettings.notes = (data && data.notes) || '';
+}
+function loadNotes(){ document.getElementById('notes').value = userSettings.notes; }
+function saveNotes(){
+  const val=document.getElementById('notes').value;
+  clearTimeout(notesTimer);
+  notesTimer=setTimeout(async()=>{
+    await sb.from('user_settings').update({notes:val}).eq('user_id',currentUser.id);
+  },600);
+}
+
+/* ══════════════════════════════════
+   LOAD + REALTIME SYNC
+══════════════════════════════════ */
+async function loadAll(){
+  await Promise.all([fetchSubjects(), fetchTasks(), fetchSettings()]);
+  renderSubjects();
+  loadNotes();
+  render2();
+}
+
+function setupRealtime(){
+  if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel=null; }
+  realtimeChannel = sb.channel('aquatrack-sync')
+    .on('postgres_changes',{event:'*',schema:'public',table:'subjects',filter:`user_id=eq.${currentUser.id}`},
+      async()=>{ await fetchSubjects(); renderSubjects(); render2(); })
+    .on('postgres_changes',{event:'*',schema:'public',table:'tasks',filter:`user_id=eq.${currentUser.id}`},
+      async()=>{ await fetchTasks(); render2(); })
+    .subscribe();
+}
+</script>
+</body>
+</html>
